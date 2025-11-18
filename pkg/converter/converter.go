@@ -99,31 +99,41 @@ func (c *Converter) convertVideo(req ConversionRequest) error {
 
 	args := []string{"-i", req.InputPath}
 
-	// Add quality settings
-	if quality, ok := req.Options["quality"]; ok {
-		args = append(args, "-crf", quality)
-	}
-
-	// Add bitrate settings
-	if bitrate, ok := req.Options["bitrate"]; ok {
-		args = append(args, "-b:v", bitrate)
-	}
-
-	// Handle audio extraction
-	if filepath.Ext(req.OutputPath) == ".mp3" {
+	// Handle audio extraction (video to audio)
+	if isAudioFormat(filepath.Ext(req.OutputPath)) {
 		args = append(args, "-vn", "-acodec", "libmp3lame")
 		if bitrate, ok := req.Options["bitrate"]; ok {
 			args = append(args, "-ab", bitrate)
+		} else {
+			args = append(args, "-ab", "192k")
 		}
-	}
-
-	// Handle GIF creation
-	if filepath.Ext(req.OutputPath) == ".gif" {
+	} else if filepath.Ext(req.OutputPath) == ".gif" {
+		// Handle GIF creation (video to GIF)
 		fps := "10"
 		if fpsVal, ok := req.Options["fps"]; ok {
 			fps = fpsVal
 		}
-		args = append(args, "-vf", fmt.Sprintf("fps=%s,scale=480:-1:flags=lanczos", fps), "-f", "gif")
+		scale := "480:-1"
+		if width, ok := req.Options["width"]; ok {
+			if height, ok := req.Options["height"]; ok {
+				scale = fmt.Sprintf("%s:%s", width, height)
+			} else {
+				scale = fmt.Sprintf("%s:-1", width)
+			}
+		}
+		args = append(args, "-vf", fmt.Sprintf("fps=%s,scale=%s:flags=lanczos,split[s0][1],palettegen[p1][s0]", fps, scale))
+		args = append(args, "-map", "[p1]", "-f", "gif")
+	} else {
+		// Regular video to video conversion
+		// Add quality settings
+		if quality, ok := req.Options["quality"]; ok {
+			args = append(args, "-crf", quality)
+		}
+
+		// Add bitrate settings
+		if bitrate, ok := req.Options["bitrate"]; ok {
+			args = append(args, "-b:v", bitrate)
+		}
 	}
 
 	args = append(args, "-y", req.OutputPath)
@@ -244,6 +254,16 @@ func ValidateTools() map[string]bool {
 		"imagemagick": checkTool("magick"),
 		"pandoc":      checkTool("pandoc"),
 	}
+}
+
+func isAudioFormat(ext string) bool {
+	audioExts := []string{".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"}
+	for _, audioExt := range audioExts {
+		if ext == audioExt {
+			return true
+		}
+	}
+	return false
 }
 
 func checkTool(tool string) bool {

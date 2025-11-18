@@ -2,6 +2,15 @@
 
 A comprehensive file conversion tool inspired by VERT.sh, built in Go with both CLI and GUI interfaces.
 
+## ⚠️ Disclaimer
+
+**This project was vibe coded** - built with passion, creativity, and a love for file conversion! While it aims to provide robust functionality, please note:
+
+- This is an open-source project developed for educational and practical purposes
+- Always backup your important files before conversion
+- The software is provided "as-is" without warranties
+- Contributions and feedback are welcome to improve the project
+
 ## Features
 
 - **Multi-format Support**: Convert between 250+ file formats
@@ -11,7 +20,7 @@ A comprehensive file conversion tool inspired by VERT.sh, built in Go with both 
   - Document: PDF, DOC, DOCX, TXT, HTML, etc.
 
 - **CLI Interface**: Command-line tool for automation and scripting
-- **GUI Interface**: User-friendly desktop application (coming soon)
+- **GUI Interface**: User-friendly desktop application
 - **Bulk Processing**: Convert multiple files at once
 - **Media Processing**: 
   - Extract frames from videos
@@ -22,7 +31,16 @@ A comprehensive file conversion tool inspired by VERT.sh, built in Go with both 
 
 ## Installation
 
-### Prerequisites
+### Quick Install (Recommended)
+
+```bash
+# Download and run the installer
+curl -fsSL https://raw.githubusercontent.com/ezraclintoc/goverter/main/install.sh | bash
+```
+
+### Manual Installation
+
+#### Prerequisites
 
 Install required tools for full functionality:
 
@@ -44,7 +62,7 @@ brew install ffmpeg imagemagick pandoc
 ### Build from Source
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/ezraclintoc/goverter.git
 cd goverter
 go mod tidy
 go build -o goverter-cli ./cmd/cli
@@ -68,6 +86,18 @@ go build -o goverter-gui ./cmd/gui
 
 # Convert document
 ./goverter-cli convert -i document.pdf -o document.txt
+```
+
+#### Video to GIF
+```bash
+# Convert video to GIF with custom settings
+./goverter-cli convert -i video.mp4 -o video.gif --quality 10
+```
+
+#### Video to Audio
+```bash
+# Extract audio from video
+./goverter-cli convert -i video.mp4 -o audio.mp3 --bitrate 192k
 ```
 
 #### Video Frame Extraction
@@ -113,9 +143,15 @@ go build -o goverter-gui ./cmd/gui
 ### GUI Application
 
 ```bash
-# Launch GUI (coming soon)
+# Launch GUI
 ./goverter-gui
 ```
+
+The GUI provides:
+- **Convert Tab**: Drag & drop files, select output format, adjust quality
+- **Image Tools Tab**: Crop, resize, rotate images
+- **Video Tools Tab**: Extract frames, convert to GIF, extract audio
+- **Info Tab**: Check tool availability and supported formats
 
 ## Supported Formats
 
@@ -149,6 +185,8 @@ goverter/
 │   └── utils/         # Utility functions
 ├── internal/
 │   └── config/       # Configuration
+├── install.sh         # Cross-platform installer
+├── build-release.sh  # Release build script
 ├── go.mod
 ├── go.sum
 └── README.md
@@ -173,11 +211,13 @@ The tool automatically detects installed tools and enables features accordingly:
 
 ## Contributing
 
+This was vibe coded with love, but contributions make it better! 
+
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
@@ -185,15 +225,33 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Inspiration
 
-This project is inspired by [VERT.sh](https://vert.sh), an excellent open-source file converter. Goverter aims to provide similar functionality with the added benefits of Go's performance and cross-platform support.
+This project is inspired by [VERT.sh](https://vert.sh), an excellent open-source file converter. Goverter aims to provide similar functionality with added benefits of:
+
+- Go's performance and cross-platform support
+- Enhanced GUI with drag-and-drop
+- Video to GIF conversion
+- Audio extraction from videos
+- Comprehensive image processing tools
+
+## Community
+
+- 🐛 **Bug Reports**: [Issues](https://github.com/ezraclintoc/goverter/issues)
+- 💡 **Feature Requests**: [Discussions](https://github.com/ezraclintoc/goverter/discussions)
+- 🤝 **Contributions**: [Pull Requests](https://github.com/ezraclintoc/goverter/pulls)
+
+---
+
+**Built with passion for the open-source community! 🚀**
 
 ## Roadmap
 
-- [ ] Complete GUI implementation with drag-and-drop
+- [ ] Complete GUI implementation with drag-and-drop ✅
 - [ ] Add more image processing filters
 - [ ] Support for archive formats (ZIP, RAR, etc.)
 - [ ] Web interface
 - [ ] Plugin system for custom converters
-- [ ] Batch processing with progress tracking
+- [ ] Batch processing with progress tracking ✅
 - [ ] Preset conversion profiles
 - [ ] Integration with cloud storage
+- [ ] Real-time conversion preview
+- [ ] Advanced video editing features
