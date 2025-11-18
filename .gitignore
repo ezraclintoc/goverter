@@ -1,0 +1,40 @@
+# Binaries
+goverter-cli
+goverter-gui
+build/
+
+# Development
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go
+vendor/
+
+# OS specific
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Media files (for testing)
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.jpg
+*.png
+*.gif
+*.mp3
+*.wav
+*.flac
+
+# AGENTS.md (for agent privacy)
+AGENTS.md

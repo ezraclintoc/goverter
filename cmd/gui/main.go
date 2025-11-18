@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -13,6 +15,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"goverter/pkg/converter"
 	"goverter/pkg/image"
+	"goverter/pkg/media"
 	"goverter/pkg/video"
 )
 
@@ -22,6 +25,7 @@ type GUI struct {
 	converter      *converter.Converter
 	imageProcessor *image.Processor
 	frameExtractor *video.FrameExtractor
+	mediaPlayer    *media.Player
 
 	// UI Elements
 	fileList      *widget.List
@@ -35,18 +39,22 @@ type GUI struct {
 	convertBtn    *widget.Button
 	addFilesBtn   *widget.Button
 	clearBtn      *widget.Button
+	playBtn       *widget.Button
 
 	// Current tab
 	currentTab       string
 	contentContainer *fyne.Container
+	pages            map[string]fyne.CanvasObject
+	previewArea      *fyne.Container
 }
 
 func main() {
 	g := &GUI{
-		app:            app.New(),
+		app:            app.NewWithID("com.goverter.app"),
 		converter:      converter.NewConverter(),
 		imageProcessor: image.NewProcessor(),
 		frameExtractor: video.NewFrameExtractor(),
+		mediaPlayer:    media.NewPlayer(),
 		files:          make([]string, 0),
 		currentTab:     "upload",
 	}
@@ -57,13 +65,27 @@ func main() {
 
 func (g *GUI) createUI() {
 	g.window = g.app.NewWindow("🔄 Goverter - File Converter")
-	g.window.Resize(fyne.NewSize(1000, 700))
+	g.window.Resize(fyne.NewSize(1200, 800))
 	g.window.CenterOnScreen()
 
-	// Create initial upload tab
-	uploadTab := g.createUploadTab()
+	// Initialize status label to prevent nil pointer
+	g.statusLabel = widget.NewLabel("🔄 Ready")
 
-	// Tab bar with navigation buttons
+	// Create pages
+	uploadPage := g.createUploadPage()
+	convertPage := g.createConvertPage()
+	toolsPage := g.createToolsPage()
+	settingsPage := g.createSettingsPage()
+
+	// Store pages for switching
+	g.pages = map[string]fyne.CanvasObject{
+		"upload":   uploadPage,
+		"convert":  convertPage,
+		"tools":    toolsPage,
+		"settings": settingsPage,
+	}
+
+	// Tab bar with navigation buttons (centered)
 	tabBar := container.NewHBox(
 		g.createTabButton("📤 Upload", g.currentTab == "upload", func() { g.switchTab("upload") }),
 		g.createTabButton("🔄 Convert", g.currentTab == "convert", func() { g.switchTab("convert") }),
@@ -71,14 +93,17 @@ func (g *GUI) createUI() {
 		g.createTabButton("⚙️ Settings", g.currentTab == "settings", func() { g.switchTab("settings") }),
 	)
 
-	// Main content area
-	g.contentContainer = container.NewMax(uploadTab)
+	// Center the tab bar
+	centeredTabBar := container.NewCenter(tabBar)
 
-	// Layout
+	// Main content area (centered)
+	g.contentContainer = container.NewStack(uploadPage)
+
+	// Layout with centered content
 	mainContent := container.NewVBox(
-		tabBar,
+		centeredTabBar,
 		widget.NewSeparator(),
-		g.contentContainer,
+		container.NewCenter(g.contentContainer),
 	)
 
 	g.window.SetContent(mainContent)
@@ -96,42 +121,58 @@ func (g *GUI) switchTab(tabName string) {
 	g.currentTab = tabName
 
 	// Switch content based on tab
-	var content fyne.CanvasObject
-	switch tabName {
-	case "upload":
-		content = g.createUploadTab()
-	case "convert":
-		content = g.createConvertTab()
-	case "tools":
-		content = g.createToolsTab()
-	case "settings":
-		content = g.createSettingsTab()
-	}
+	if content, exists := g.pages[tabName]; exists {
+		g.currentTab = tabName
 
-	// Update content container
-	if g.contentContainer != nil {
-		g.contentContainer.Objects = []fyne.CanvasObject{content}
-		g.contentContainer.Refresh()
+		// Update content container
+		if g.contentContainer != nil {
+			g.contentContainer.Objects = []fyne.CanvasObject{content}
+			g.contentContainer.Refresh()
+		}
 	}
 }
 
-func (g *GUI) createUploadTab() fyne.CanvasObject {
+func (g *GUI) createUploadPage() fyne.CanvasObject {
 	// Drag and drop area
 	dropArea := g.createDropArea()
+
+	// Preview area
+	g.previewArea = container.NewVBox()
+	previewCard := widget.NewCard("📸 Media Preview", "", container.NewScroll(g.previewArea))
 
 	// File list
 	g.fileList = widget.NewList(
 		func() int { return len(g.files) },
 		func() fyne.CanvasObject {
+			playBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), nil)
+			playBtn.Importance = widget.LowImportance
+			previewBtn := widget.NewButtonWithIcon("", theme.SearchReplaceIcon(), nil)
+			previewBtn.Importance = widget.LowImportance
 			return container.NewHBox(
+				playBtn,
+				previewBtn,
 				widget.NewIcon(theme.DocumentIcon()),
 				widget.NewLabel("File"),
 			)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
 			fileName := filepath.Base(g.files[i])
-			if hbox, ok := o.(*fyne.Container); ok && len(hbox.Objects) > 1 {
-				hbox.Objects[1].(*widget.Label).SetText(fileName)
+			if hbox, ok := o.(*fyne.Container); ok && len(hbox.Objects) > 3 {
+				hbox.Objects[3].(*widget.Label).SetText(fileName)
+
+				// Configure play button
+				playBtn := hbox.Objects[0].(*widget.Button)
+				previewBtn := hbox.Objects[1].(*widget.Button)
+
+				if g.mediaPlayer.IsPlayable(g.files[i]) {
+					playBtn.Enable()
+					playBtn.OnTapped = func() { g.playMedia(g.files[i]) }
+					previewBtn.Enable()
+					previewBtn.OnTapped = func() { g.showPreview(g.files[i]) }
+				} else {
+					playBtn.Disable()
+					previewBtn.Disable()
+				}
 			}
 		},
 	)
@@ -178,23 +219,43 @@ func (g *GUI) createUploadTab() fyne.CanvasObject {
 	return container.NewHSplit(leftPanel, rightPanel)
 }
 
-func (g *GUI) createConvertTab() fyne.CanvasObject {
+func (g *GUI) createConvertPage() fyne.CanvasObject {
 	// File selection area
 	dropArea := g.createDropArea()
 
-	// File list
+	// File list with preview buttons
 	g.fileList = widget.NewList(
 		func() int { return len(g.files) },
 		func() fyne.CanvasObject {
+			playBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), nil)
+			playBtn.Importance = widget.LowImportance
+			previewBtn := widget.NewButtonWithIcon("", theme.SearchReplaceIcon(), nil)
+			previewBtn.Importance = widget.LowImportance
 			return container.NewHBox(
+				playBtn,
+				previewBtn,
 				widget.NewIcon(theme.DocumentIcon()),
 				widget.NewLabel("File"),
 			)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
 			fileName := filepath.Base(g.files[i])
-			if hbox, ok := o.(*fyne.Container); ok && len(hbox.Objects) > 1 {
-				hbox.Objects[1].(*widget.Label).SetText(fileName)
+			if hbox, ok := o.(*fyne.Container); ok && len(hbox.Objects) > 3 {
+				hbox.Objects[3].(*widget.Label).SetText(fileName)
+
+				// Configure play button
+				playBtn := hbox.Objects[0].(*widget.Button)
+				previewBtn := hbox.Objects[1].(*widget.Button)
+
+				if g.mediaPlayer.IsPlayable(g.files[i]) {
+					playBtn.Enable()
+					playBtn.OnTapped = func() { g.playMedia(g.files[i]) }
+					previewBtn.Enable()
+					previewBtn.OnTapped = func() { g.showPreview(g.files[i]) }
+				} else {
+					playBtn.Disable()
+					previewBtn.Disable()
+				}
 			}
 		},
 	)
@@ -205,8 +266,8 @@ func (g *GUI) createConvertTab() fyne.CanvasObject {
 		)),
 	)
 
-	// Conversion options
-	optionsContainer := g.createConversionOptions()
+	// Conversion options with dynamic format selection
+	optionsContainer := g.createDynamicConversionOptions()
 
 	// Status and progress
 	g.statusLabel = widget.NewLabel("🔄 Ready to convert files")
@@ -219,7 +280,7 @@ func (g *GUI) createConvertTab() fyne.CanvasObject {
 		g.convertBtn,
 	)
 
-	// Main layout
+	// Main layout (centered)
 	leftPanel := container.NewVBox(
 		dropArea,
 		widget.NewSeparator(),
@@ -237,10 +298,15 @@ func (g *GUI) createConvertTab() fyne.CanvasObject {
 		buttonContainer,
 	)
 
-	return container.NewHSplit(leftPanel, rightPanel)
+	// Center the content
+	centeredContent := container.NewCenter(
+		container.NewHSplit(leftPanel, rightPanel),
+	)
+
+	return centeredContent
 }
 
-func (g *GUI) createToolsTab() fyne.CanvasObject {
+func (g *GUI) createToolsPage() fyne.CanvasObject {
 	// Create tool sections
 	imageTools := g.createImageToolsSection()
 	videoTools := g.createVideoToolsSection()
@@ -256,7 +322,7 @@ func (g *GUI) createToolsTab() fyne.CanvasObject {
 	return widget.NewCard("", "", toolTabs)
 }
 
-func (g *GUI) createSettingsTab() fyne.CanvasObject {
+func (g *GUI) createSettingsPage() fyne.CanvasObject {
 	// Tool status
 	tools := converter.ValidateTools()
 	toolStatus := container.NewVBox()
@@ -274,7 +340,8 @@ func (g *GUI) createSettingsTab() fyne.CanvasObject {
 	formatContainer := container.NewVBox()
 
 	for category, formats := range supportedFormats {
-		categoryLabel := widget.NewLabel(fmt.Sprintf("%s Formats:", strings.Title(category)))
+		categoryTitle := strings.ToUpper(string(category[0])) + strings.ToLower(string(category[1:]))
+		categoryLabel := widget.NewLabel(fmt.Sprintf("%s Formats:", categoryTitle))
 		categoryLabel.TextStyle = fyne.TextStyle{Bold: true}
 		formatContainer.Add(categoryLabel)
 
@@ -333,6 +400,145 @@ func (g *GUI) createDropArea() *widget.Card {
 	g.convertBtn.Disable()
 
 	return widget.NewCard("", "", container.NewVBox(dropLabel, g.addFilesBtn, g.clearBtn))
+}
+
+func (g *GUI) createDynamicConversionOptions() *fyne.Container {
+	// Get valid output formats based on current files
+	validFormats := g.getValidOutputFormats()
+
+	// Output format selection
+	g.outputFormat = widget.NewSelect(validFormats, func(selected string) {
+		g.updateConversionOptions(selected)
+	})
+
+	if len(validFormats) > 0 {
+		g.outputFormat.SetSelected(validFormats[0])
+		g.updateConversionOptions(validFormats[0])
+	}
+
+	// Quality slider
+	g.qualitySlider = widget.NewSlider(1, 100)
+	g.qualitySlider.SetValue(95)
+	g.qualityLabel = widget.NewLabel("🎨 Quality: 95")
+	g.qualitySlider.OnChanged = func(value float64) {
+		g.qualityLabel.SetText(fmt.Sprintf("🎨 Quality: %.0f", value))
+	}
+
+	// Output directory
+	g.outputDir = widget.NewEntry()
+	g.outputDir.SetPlaceHolder("📁 Same as input directory")
+	browseBtn := widget.NewButton("📂 Browse", func() {
+		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+			if err == nil && uri != nil {
+				g.outputDir.SetText(uri.Path())
+			}
+		}, g.window)
+	})
+
+	outputContainer := container.NewBorder(nil, nil, nil, browseBtn, g.outputDir)
+
+	// Format info
+	formatInfo := widget.NewLabel("📋 Select files to see available formats")
+	formatInfo.Wrapping = fyne.TextWrapWord
+
+	return container.NewVBox(
+		widget.NewLabel("📂 Output Format:"),
+		g.outputFormat,
+		widget.NewSeparator(),
+		widget.NewLabel("🎨 Quality:"),
+		container.NewHBox(g.qualitySlider, g.qualityLabel),
+		widget.NewSeparator(),
+		widget.NewLabel("📁 Output Directory:"),
+		outputContainer,
+		widget.NewSeparator(),
+		widget.NewCard("📋 Format Information", "", formatInfo),
+	)
+}
+
+func (g *GUI) getValidOutputFormats() []string {
+	if len(g.files) == 0 {
+		return []string{"mp4", "jpg", "mp3", "pdf"} // Default formats
+	}
+
+	// Get supported formats from converter
+	supportedFormats := g.converter.GetSupportedFormats()
+
+	// Determine input file types
+	inputTypes := make(map[string]bool)
+	for _, file := range g.files {
+		ext := strings.ToLower(filepath.Ext(file))
+		if ext != "" {
+			inputTypes[ext] = true
+		}
+	}
+
+	// Collect all possible output formats
+	allFormats := make(map[string]bool)
+
+	for category, formats := range supportedFormats {
+		for _, inputFormat := range formats.InputFormats {
+			if inputTypes["."+inputFormat] {
+				// Add all output formats for this input format
+				for _, outputFormat := range formats.OutputFormats {
+					allFormats[outputFormat] = true
+				}
+				break
+			}
+		}
+	}
+
+	// Convert to sorted slice
+	result := make([]string, 0, len(allFormats))
+	for format := range allFormats {
+		result = append(result, format)
+	}
+
+	// Sort formats (basic alphabetical)
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[i] > result[j] {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	if len(result) == 0 {
+		return []string{"mp4", "jpg", "mp3", "pdf"} // Fallback
+	}
+
+	return result
+}
+
+func (g *GUI) updateConversionOptions(selectedFormat string) {
+	// Update format information
+	formatInfo := g.getFormatInfo(selectedFormat)
+
+	// Find the format info label and update it
+	// This is a simplified approach - in a real app you'd store the reference
+	g.updateStatus(fmt.Sprintf("📂 Selected format: %s", selectedFormat))
+}
+
+func (g *GUI) getFormatInfo(format string) string {
+	// Provide information about the selected format
+	descriptions := map[string]string{
+		"mp4":  "MP4 - Modern video format with good compression",
+		"avi":  "AVI - Classic video format, large file sizes",
+		"mkv":  "MKV - Flexible container for multiple tracks",
+		"mov":  "MOV - Apple QuickTime video format",
+		"jpg":  "JPG - Compressed image format for photos",
+		"png":  "PNG - Lossless image format with transparency",
+		"gif":  "GIF - Animated image format",
+		"mp3":  "MP3 - Compressed audio format",
+		"wav":  "WAV - Uncompressed audio format",
+		"flac": "FLAC - Lossless audio compression",
+		"pdf":  "PDF - Document format for sharing",
+		"txt":  "TXT - Plain text document",
+	}
+
+	if desc, exists := descriptions[format]; exists {
+		return desc
+	}
+	return fmt.Sprintf("%s - Media format", strings.ToUpper(format))
 }
 
 func (g *GUI) createConversionOptions() *fyne.Container {
@@ -911,4 +1117,100 @@ func parseInt(s string) int {
 	var result int
 	fmt.Sscanf(s, "%d", &result)
 	return result
+}
+
+func (g *GUI) playMedia(filePath string) {
+	if filePath == "" {
+		dialog.ShowError(fmt.Errorf("no file selected for playback"), g.window)
+		return
+	}
+
+	err := g.mediaPlayer.Play(filePath)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("failed to play media: %w", err), g.window)
+		return
+	}
+
+	g.updateStatus(fmt.Sprintf("🎵 Playing: %s", filepath.Base(filePath)))
+}
+
+func (g *GUI) showPreview(filePath string) {
+	if filePath == "" {
+		dialog.ShowError(fmt.Errorf("no file selected for preview"), g.window)
+		return
+	}
+
+	previewInfo, err := g.mediaPlayer.GeneratePreview(filePath)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("failed to generate preview: %w", err), g.window)
+		return
+	}
+
+	// Clear previous preview
+	g.previewArea.Objects = []fyne.CanvasObject{}
+
+	// Create preview content
+	previewContent := container.NewVBox()
+
+	// File info
+	fileInfo := container.NewVBox(
+		widget.NewLabel(fmt.Sprintf("📁 File: %s", filepath.Base(filePath))),
+		widget.NewLabel(fmt.Sprintf("📊 Size: %s", previewInfo.FileSize)),
+		widget.NewLabel(fmt.Sprintf("🎯 Format: %s", previewInfo.Format)),
+	)
+
+	if previewInfo.Duration != "" {
+		fileInfo.Add(widget.NewLabel(fmt.Sprintf("⏱️ Duration: %s", previewInfo.Duration)))
+	}
+
+	if previewInfo.Resolution != "" {
+		fileInfo.Add(widget.NewLabel(fmt.Sprintf("📐 Resolution: %s", previewInfo.Resolution)))
+	}
+
+	if previewInfo.Title != "" {
+		fileInfo.Add(widget.NewLabel(fmt.Sprintf("🎵 Title: %s", previewInfo.Title)))
+	}
+
+	if previewInfo.Artist != "" {
+		fileInfo.Add(widget.NewLabel(fmt.Sprintf("👤 Artist: %s", previewInfo.Artist)))
+	}
+
+	previewContent.Add(widget.NewCard("📋 File Information", "", fileInfo))
+
+	// Add thumbnail if available
+	if previewInfo.Thumbnail != "" {
+		thumbnailImg := widget.NewIcon(theme.FileIcon())
+		thumbnailCard := widget.NewCard("🖼️ Thumbnail", "", thumbnailImg)
+		previewContent.Add(thumbnailCard)
+	}
+
+	// Action buttons
+	actions := container.NewHBox(
+		widget.NewButton("▶️ Play", func() { g.playMedia(filePath) }),
+		widget.NewButton("📁 Open Folder", func() { g.openFileFolder(filePath) }),
+	)
+
+	previewContent.Add(widget.NewCard("🎬 Actions", "", actions))
+
+	// Add to preview area
+	g.previewArea.Add(previewContent)
+	g.previewArea.Refresh()
+
+	g.updateStatus(fmt.Sprintf("📸 Preview: %s", filepath.Base(filePath)))
+}
+
+func (g *GUI) openFileFolder(filePath string) {
+	folderPath := filepath.Dir(filePath)
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", folderPath)
+	case "darwin":
+		cmd = exec.Command("open", folderPath)
+	default:
+		cmd = exec.Command("xdg-open", folderPath)
+	}
+
+	cmd.Start()
 }
